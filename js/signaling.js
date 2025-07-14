@@ -127,7 +127,18 @@ async function createPeerConnection(peerName) {
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
+      { urls: 'stun:stun2.l.google.com:19302' },
+      // Public demo TURN servers (replace with your own for production)
+      {
+        urls: 'turn:global.relay.metered.ca:80',
+        username: 'openai',
+        credential: 'openai'
+      },
+      {
+        urls: 'turn:global.relay.metered.ca:443',
+        username: 'openai',
+        credential: 'openai'
+      }
     ],
     iceCandidatePoolSize: 10,
     bundlePolicy: 'max-bundle',
