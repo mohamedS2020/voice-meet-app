@@ -32,15 +32,19 @@ socket.on('disconnect', () => {
 socket.on('existing-peer', (data) => {
   console.log('Found existing peer:', data.name);
   addParticipant(data.name);
-  // Wait a bit then create offer to existing peer
-  setTimeout(() => createOffer(data.name), 100);
+  // Only polite peer (joiner) creates offer
+  if (isPolite) {
+    setTimeout(() => createOffer(data.name), 100);
+  }
 });
 
 socket.on('new-peer', (data) => {
   console.log('New peer joined:', data.name);
   addParticipant(data.name);
-  // Create offer to new peer immediately
-  createOffer(data.name);
+  // Only polite peer (joiner) creates offer
+  if (isPolite) {
+    createOffer(data.name);
+  }
 });
 
 socket.on('refresh-peer', (data) => {
