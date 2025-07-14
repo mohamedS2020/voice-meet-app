@@ -2,6 +2,11 @@
 const socket = io(window.CONFIG.SERVER_URL);
 const peers = {}; // { peerName: RTCPeerConnection }
 
+// Add polite/impolite peer logic for perfect negotiation
+const isPolite = !isHost; // Host is impolite, joiners are polite
+let makingOffer = false;
+let ignoreOffer = false;
+
 socket.on('connect', () => {
   console.log('Socket.IO connected to signaling server');
   console.log('Joining room:', roomCode, 'as user:', userName);
