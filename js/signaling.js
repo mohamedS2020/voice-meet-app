@@ -134,31 +134,54 @@ async function createPeerConnection(peerName) {
   // Ultra-optimized WebRTC configuration for voice
   const pc = new RTCPeerConnection({
     iceServers: [
+      // Multiple Google STUN servers
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-      // More reliable TURN servers for production
+      
+      // Reliable free TURN servers for production
       {
-        urls: ['turn:openrelay.metered.ca:80'],
+        urls: [
+          'turn:relay1.expressturn.com:3478',
+        ],
+        username: 'efJBIBF2YEEQ2WJBLS',
+        credential: 'ZsIBXSYnQ0q9t0y6'
+      },
+      {
+        urls: [
+          'turn:relay1.expressturn.com:3478?transport=tcp',
+        ],
+        username: 'efJBIBF2YEEQ2WJBLS',
+        credential: 'ZsIBXSYnQ0q9t0y6'
+      },
+      
+      // Backup TURN servers
+      {
+        urls: [
+          'turn:openrelay.metered.ca:80',
+          'turn:openrelay.metered.ca:443',
+          'turn:openrelay.metered.ca:443?transport=tcp'
+        ],
         username: 'openrelayproject',
         credential: 'openrelayproject'
       },
+      
+      // Additional backup
       {
-        urls: ['turn:openrelay.metered.ca:443'],
-        username: 'openrelayproject', 
-        credential: 'openrelayproject'
-      },
-      {
-        urls: ['turn:openrelay.metered.ca:443?transport=tcp'],
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
+        urls: [
+          'turn:turn.anyfirewall.com:443?transport=tcp'
+        ],
+        username: 'webrtc',
+        credential: 'webrtc'
       }
     ],
     iceCandidatePoolSize: 10,
     bundlePolicy: 'max-bundle',
-    rtcpMuxPolicy: 'require'
+    rtcpMuxPolicy: 'require',
+    // Force TURN usage in restrictive networks
+    iceTransportPolicy: 'all'
   });
   pc.peerName = peerName;
 
@@ -215,12 +238,28 @@ async function createPeerConnection(peerName) {
 
   pc.onicecandidate = event => {
     if (event.candidate) {
-      console.log('🧊 Sending ICE candidate to:', peerName, {
-        type: event.candidate.type,
-        protocol: event.candidate.protocol,
-        address: event.candidate.address,
-        port: event.candidate.port
+      const candidate = event.candidate;
+      const type = candidate.type || 'unknown';
+      const protocol = candidate.protocol || 'unknown';
+      
+      console.log(`🧊 Sending ICE candidate to ${peerName}:`, {
+        type: type,
+        protocol: protocol,
+        address: candidate.address,
+        port: candidate.port,
+        priority: candidate.priority,
+        foundation: candidate.foundation
       });
+      
+      // Log TURN candidates specifically
+      if (type === 'relay') {
+        console.log('🔄 TURN relay candidate generated for:', peerName);
+      } else if (type === 'srflx') {
+        console.log('🌐 STUN reflexive candidate generated for:', peerName);
+      } else if (type === 'host') {
+        console.log('🏠 Host candidate generated for:', peerName);
+      }
+      
       socket.emit('signal', {
         roomId: roomCodeSignaling,
         to: peerName,
@@ -461,9 +500,36 @@ async function createPeerConnection(peerName) {
       console.error('❌ ICE connection failed for:', peerName);
       console.error('❌ Attempting ICE restart...');
       logConnectionDiagnostics();
+      
+      // First try ICE restart
       pc.restartIce();
+      
+      // If still failing after 3 seconds, try full reconnection
+      setTimeout(() => {
+        if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+          console.log('🔄 ICE restart failed, attempting full reconnection...');
+          
+          // Close old connection
+          pc.close();
+          delete peers[peerName];
+          
+          // Create new connection with different ICE transport policy
+          setTimeout(() => {
+            console.log('🆕 Creating new connection with relay-only policy...');
+            createOffer(peerName);
+          }, 1000);
+        }
+      }, 3000);
     } else if (pc.iceConnectionState === 'disconnected') {
       console.warn('⚠️ ICE connection disconnected for:', peerName);
+      
+      // Try to reconnect after a short delay
+      setTimeout(() => {
+        if (pc.iceConnectionState === 'disconnected') {
+          console.log('🔄 Attempting reconnection for:', peerName);
+          pc.restartIce();
+        }
+      }, 2000);
     }
   };
 
@@ -623,6 +689,52 @@ async function handleSignal(from, signal) {
     }
   }
 }
+
+// PRODUCTION: Test TURN server connectivity
+async function testTurnConnectivity() {
+  console.log('🔄 Testing TURN server connectivity...');
+  
+  try {
+    const testPc = new RTCPeerConnection({
+      iceServers: [
+        {
+          urls: ['turn:relay1.expressturn.com:3478'],
+          username: 'efJBIBF2YEEQ2WJBLS',
+          credential: 'ZsIBXSYnQ0q9t0y6'
+        }
+      ]
+    });
+    
+    let turnCandidateFound = false;
+    
+    testPc.onicecandidate = (event) => {
+      if (event.candidate && event.candidate.type === 'relay') {
+        turnCandidateFound = true;
+        console.log('✅ TURN server connectivity confirmed!');
+        testPc.close();
+      }
+    };
+    
+    // Create a dummy data channel to trigger ICE gathering
+    testPc.createDataChannel('test');
+    const offer = await testPc.createOffer();
+    await testPc.setLocalDescription(offer);
+    
+    // Wait for ICE gathering
+    setTimeout(() => {
+      if (!turnCandidateFound) {
+        console.warn('⚠️ No TURN relay candidates found - may have connectivity issues');
+      }
+      testPc.close();
+    }, 5000);
+    
+  } catch (error) {
+    console.error('❌ TURN connectivity test failed:', error);
+  }
+}
+
+// Run TURN test on page load
+setTimeout(testTurnConnectivity, 1000);
 
 // PRODUCTION DEBUGGING: Enhanced connection diagnostics
 function logConnectionDiagnostics() {
