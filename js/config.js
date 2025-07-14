@@ -5,7 +5,7 @@ const config = {
   },
   production: {
     // This will be your Railway app URL - update this after deployment
-    SERVER_URL: 'https://your-server-name.railway.app'
+    SERVER_URL: 'voice-meet-server-production.up.railway.app'
   }
 };
 
