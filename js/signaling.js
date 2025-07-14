@@ -2,10 +2,11 @@
 const socket = io(window.CONFIG.SERVER_URL);
 const peers = {}; // { peerName: RTCPeerConnection }
 
-// Ensure isHost is defined from sessionStorage
-const isHost = sessionStorage.getItem("isHost") === "true";
-// Add polite/impolite peer logic for perfect negotiation
-const isPolite = !isHost; // Host is impolite, joiners are polite
+// Define roomCode and userName locally
+const roomCode = new URLSearchParams(window.location.search).get("code");
+const userName = sessionStorage.getItem("userName") || "Anonymous";
+const isHostSignaling = sessionStorage.getItem("isHost") === "true";
+const isPolite = !isHostSignaling; // Host is impolite, joiners are polite
 let makingOffer = false;
 let ignoreOffer = false;
 
@@ -15,7 +16,7 @@ socket.on('connect', () => {
   socket.emit('join', {
     roomId: roomCode,
     name: userName,
-    isHost: isHost
+    isHost: isHostSignaling
   });
 });
 
