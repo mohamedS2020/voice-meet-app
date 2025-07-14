@@ -407,66 +407,63 @@ async function createPeerConnection(peerName) {
 }
 
 async function createOffer(peerName) {
-  console.log('Creating offer for:', peerName);
-  
-  // Get or create peer connection
-  let pc = peers[peerName];
-  if (!pc) {
-    pc = await createPeerConnection(peerName);
-  }
-  
-  // Check signaling state and handle accordingly
-  console.log(`Signaling state for ${peerName}:`, pc.signalingState);
-  
-  if (pc.signalingState === 'have-remote-offer') {
-    console.log('Peer connection has remote offer, creating answer instead for:', peerName);
-    // If we have a remote offer, we should create an answer, not an offer
-    return;
-  }
-  
-  if (pc.signalingState === 'have-local-offer') {
-    console.log('Already have local offer for:', peerName);
-    return;
-  }
-  
-  if (pc.signalingState === 'closed') {
-    console.log('Peer connection closed for:', peerName, 'recreating...');
-    if (peers[peerName]) {
-      peers[peerName].close();
-      delete peers[peerName];
-    }
-    pc = await createPeerConnection(peerName);
-  }
-  
-  if (pc.signalingState !== 'stable') {
-    console.log('Signaling state not stable for:', peerName, '- state:', pc.signalingState);
-    // Wait a bit and retry if not stable
-    setTimeout(() => createOffer(peerName), 500);
-    return;
-  }
-  
+  makingOffer = true;
   try {
-    const offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-    console.log('Sending offer to:', peerName);
-    socket.emit('signal', {
-      roomId: roomCode,
-      to: peerName,
-      signal: { sdp: pc.localDescription },
-    });
-  } catch (error) {
-    console.error('Error creating offer for', peerName, ':', error);
-    
-    // If we get any error, try to recover
-    if (error.name === 'InvalidStateError' || error.name === 'OperationError') {
-      console.log('State/Operation error, recreating connection to:', peerName);
+    console.log('Creating offer for:', peerName);
+    // Get or create peer connection
+    let pc = peers[peerName];
+    if (!pc) {
+      pc = await createPeerConnection(peerName);
+    }
+    // Check signaling state and handle accordingly
+    console.log(`Signaling state for ${peerName}:`, pc.signalingState);
+    if (pc.signalingState === 'have-remote-offer') {
+      console.log('Peer connection has remote offer, creating answer instead for:', peerName);
+      // If we have a remote offer, we should create an answer, not an offer
+      return;
+    }
+    if (pc.signalingState === 'have-local-offer') {
+      console.log('Already have local offer for:', peerName);
+      return;
+    }
+    if (pc.signalingState === 'closed') {
+      console.log('Peer connection closed for:', peerName, 'recreating...');
       if (peers[peerName]) {
         peers[peerName].close();
         delete peers[peerName];
       }
-      // Retry after recreating connection
-      setTimeout(() => createOffer(peerName), 1000);
+      pc = await createPeerConnection(peerName);
     }
+    if (pc.signalingState !== 'stable') {
+      console.log('Signaling state not stable for:', peerName, '- state:', pc.signalingState);
+      // Wait a bit and retry if not stable
+      setTimeout(() => createOffer(peerName), 500);
+      return;
+    }
+    try {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      console.log('Sending offer to:', peerName);
+      socket.emit('signal', {
+        roomId: roomCode,
+        to: peerName,
+        signal: { sdp: pc.localDescription },
+      });
+    } catch (error) {
+      console.error('Error creating offer for', peerName, ':', error);
+      // If we get any error, try to recover
+      if (error.name === 'InvalidStateError' || error.name === 'OperationError') {
+        console.log('State/Operation error, recreating connection to:', peerName);
+        if (peers[peerName]) {
+          peers[peerName].close();
+          delete peers[peerName];
+        }
+        // Retry after recreating connection
+        setTimeout(() => createOffer(peerName), 1000);
+      }
+    }
+  } finally {
+    makingOffer = false;
   }
 }
 
@@ -487,9 +484,14 @@ async function handleSignal(from, signal) {
         pc = await createPeerConnection(from);
       }
       if (signal.sdp.type === 'offer') {
-        if (pc.signalingState !== 'stable') {
-          console.warn('Skipping offer: not in stable state', pc.signalingState);
+        const offerCollision = makingOffer || pc.signalingState !== 'stable';
+        ignoreOffer = !isPolite && offerCollision;
+        if (ignoreOffer) {
+          console.warn('Impolite peer ignoring offer due to collision');
           return;
+        }
+        if (offerCollision) {
+          await pc.setLocalDescription({ type: 'rollback' });
         }
         await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         console.log('Creating answer for:', from);
