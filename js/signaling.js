@@ -430,6 +430,12 @@ async function createPeerConnection(peerName) {
 }
 
 async function createOffer(peerName) {
+  // Wait until localStream is available
+  if (!localStream) {
+    console.log('Local stream not ready, delaying offer for', peerName);
+    setTimeout(() => createOffer(peerName), 200);
+    return;
+  }
   makingOffer = true;
   try {
     console.log('Creating offer for:', peerName);
