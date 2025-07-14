@@ -11,7 +11,8 @@ let makingOffer = false;
 let ignoreOffer = false;
 
 socket.on('connect', () => {
-  console.log('Socket.IO connected to signaling server');
+  console.log('✅ Socket.IO connected to signaling server');
+  logConnectionDiagnostics(); // Enhanced debugging
   console.log('Joining room:', roomCodeSignaling, 'as user:', userNameSignaling);
   socket.emit('join', {
     roomId: roomCodeSignaling,
@@ -21,8 +22,16 @@ socket.on('connect', () => {
 });
 
 socket.on('connect_error', (error) => {
-  console.error('Socket.IO connection error:', error);
-  alert('Failed to connect to signaling server. Make sure the server is running on port 8080.');
+  console.error('❌ Socket.IO connection error:', error);
+  console.error('❌ Error details:', {
+    message: error.message,
+    description: error.description,
+    context: error.context,
+    type: error.type
+  });
+  console.error('❌ Trying to connect to:', window.CONFIG.SERVER_URL);
+  logConnectionDiagnostics();
+  alert(`Failed to connect to server: ${error.message}\n\nServer: ${window.CONFIG.SERVER_URL}\n\nCheck browser console for details.`);
 });
 
 socket.on('disconnect', () => {
@@ -128,16 +137,23 @@ async function createPeerConnection(peerName) {
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
       { urls: 'stun:stun2.l.google.com:19302' },
-      // Public demo TURN servers (replace with your own for production)
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      // More reliable TURN servers for production
       {
-        urls: 'turn:global.relay.metered.ca:80',
-        username: 'openai',
-        credential: 'openai'
+        urls: ['turn:openrelay.metered.ca:80'],
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
       },
       {
-        urls: 'turn:global.relay.metered.ca:443',
-        username: 'openai',
-        credential: 'openai'
+        urls: ['turn:openrelay.metered.ca:443'],
+        username: 'openrelayproject', 
+        credential: 'openrelayproject'
+      },
+      {
+        urls: ['turn:openrelay.metered.ca:443?transport=tcp'],
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
       }
     ],
     iceCandidatePoolSize: 10,
@@ -199,12 +215,19 @@ async function createPeerConnection(peerName) {
 
   pc.onicecandidate = event => {
     if (event.candidate) {
-      console.log('Sending ICE candidate to:', peerName);
+      console.log('🧊 Sending ICE candidate to:', peerName, {
+        type: event.candidate.type,
+        protocol: event.candidate.protocol,
+        address: event.candidate.address,
+        port: event.candidate.port
+      });
       socket.emit('signal', {
         roomId: roomCodeSignaling,
         to: peerName,
         signal: { candidate: event.candidate },
       });
+    } else {
+      console.log('✅ ICE gathering complete for:', peerName);
     }
   };
 
@@ -386,7 +409,11 @@ async function createPeerConnection(peerName) {
   };
 
   pc.onconnectionstatechange = () => {
-    console.log(`Ultra-optimized peer connection state for ${peerName}:`, pc.connectionState);
+    console.log(`🔗 Peer connection state for ${peerName}:`, pc.connectionState);
+    console.log(`🧊 ICE connection state for ${peerName}:`, pc.iceConnectionState);
+    console.log(`📡 ICE gathering state for ${peerName}:`, pc.iceGatheringState);
+    console.log(`📞 Signaling state for ${peerName}:`, pc.signalingState);
+    
     const el = document.querySelector(`.participant[data-name="${peerName}"] .status`);
     if (el) {
       switch (pc.connectionState) {
@@ -404,7 +431,7 @@ async function createPeerConnection(peerName) {
           // Try to reconnect with optimizations
           setTimeout(() => {
             if (pc.connectionState === 'disconnected') {
-              console.log('Attempting ultra-optimized reconnect to:', peerName);
+              console.log('🔄 Attempting ultra-optimized reconnect to:', peerName);
               createOffer(peerName);
             }
           }, 1000); // Faster reconnect
@@ -412,17 +439,51 @@ async function createPeerConnection(peerName) {
         case 'failed':
           el.textContent = "❌ Connection Failed";
           el.style.color = "#ff4757";
+          console.error('❌ Connection failed for:', peerName);
+          console.error('❌ Final ICE state:', pc.iceConnectionState);
+          logConnectionDiagnostics();
           break;
       }
     }
   };
 
   pc.oniceconnectionstatechange = () => {
-    console.log(`Ultra-optimized ICE connection state for ${peerName}:`, pc.iceConnectionState);
-    if (pc.iceConnectionState === 'failed') {
-      console.log('ICE connection failed for:', peerName, 'attempting ultra-fast restart');
+    console.log(`🧊 ICE connection state for ${peerName}:`, pc.iceConnectionState);
+    
+    // Enhanced ICE state logging
+    if (pc.iceConnectionState === 'checking') {
+      console.log('🔍 ICE checking connectivity for:', peerName);
+    } else if (pc.iceConnectionState === 'connected') {
+      console.log('✅ ICE connection established for:', peerName);
+    } else if (pc.iceConnectionState === 'completed') {
+      console.log('🎉 ICE connection completed for:', peerName);
+    } else if (pc.iceConnectionState === 'failed') {
+      console.error('❌ ICE connection failed for:', peerName);
+      console.error('❌ Attempting ICE restart...');
+      logConnectionDiagnostics();
       pc.restartIce();
+    } else if (pc.iceConnectionState === 'disconnected') {
+      console.warn('⚠️ ICE connection disconnected for:', peerName);
     }
+  };
+
+  // PRODUCTION: Enhanced ICE candidate monitoring
+  pc.addEventListener('icegatheringstatechange', () => {
+    console.log(`🧊 ICE gathering state changed for ${peerName}:`, pc.iceGatheringState);
+    if (pc.iceGatheringState === 'complete') {
+      console.log('✅ ICE gathering completed for:', peerName);
+    }
+  });
+
+  // PRODUCTION: Monitor for ICE candidate pairs
+  let iceCandidatesReceived = 0;
+  let iceCandidatesSent = 0;
+  
+  const originalAddIceCandidate = pc.addIceCandidate.bind(pc);
+  pc.addIceCandidate = async function(candidate) {
+    iceCandidatesReceived++;
+    console.log(`🧊 Received ICE candidate #${iceCandidatesReceived} for ${peerName}:`, candidate.candidate);
+    return originalAddIceCandidate(candidate);
   };
 
   peers[peerName] = pc;
@@ -562,3 +623,27 @@ async function handleSignal(from, signal) {
     }
   }
 }
+
+// PRODUCTION DEBUGGING: Enhanced connection diagnostics
+function logConnectionDiagnostics() {
+  console.log('🔧 WebRTC Connection Diagnostics:');
+  console.log('- Server URL:', window.CONFIG.SERVER_URL);
+  console.log('- Socket connected:', socket?.connected);
+  console.log('- Socket ID:', socket?.id);
+  console.log('- Room code:', roomCodeSignaling);
+  console.log('- User name:', userNameSignaling);
+  console.log('- Is host:', isHostSignaling);
+  console.log('- Active peers:', Object.keys(peers));
+  console.log('- Browser:', navigator.userAgent.includes('Chrome') ? 'Chrome' : 
+                          navigator.userAgent.includes('Firefox') ? 'Firefox' : 
+                          navigator.userAgent.includes('Safari') ? 'Safari' : 'Other');
+  console.log('- Connection type:', navigator.connection?.effectiveType || 'unknown');
+  console.log('- Online status:', navigator.onLine);
+}
+
+// Enhanced debugging for production issues
+console.log('🔧 Production Debug Info:');
+console.log('- Server URL:', window.CONFIG.SERVER_URL);
+console.log('- Current origin:', window.location.origin);
+console.log('- User agent:', navigator.userAgent);
+console.log('- Connection type:', navigator.connection?.effectiveType || 'unknown');
