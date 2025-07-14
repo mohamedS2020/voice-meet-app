@@ -481,16 +481,17 @@ async function handleSignal(from, signal) {
   try {
     if (signal.sdp) {
       console.log('Setting remote description from:', from, 'Type:', signal.sdp.type);
-      
       // Handle signaling state properly
       if (pc.signalingState === 'closed') {
         console.log('Peer connection closed for:', from, 'recreating...');
         pc = await createPeerConnection(from);
       }
-      
-      await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
-      
       if (signal.sdp.type === 'offer') {
+        if (pc.signalingState !== 'stable') {
+          console.warn('Skipping offer: not in stable state', pc.signalingState);
+          return;
+        }
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
         console.log('Creating answer for:', from);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -500,23 +501,26 @@ async function handleSignal(from, signal) {
           to: from,
           signal: { sdp: pc.localDescription },
         });
+      } else if (signal.sdp.type === 'answer') {
+        if (pc.signalingState !== 'have-local-offer') {
+          console.warn('Skipping answer: not in have-local-offer state', pc.signalingState);
+          return;
+        }
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
       }
     }
-
     if (signal.candidate) {
       console.log('Adding ICE candidate from:', from);
       if (pc.remoteDescription) {
         await pc.addIceCandidate(new RTCIceCandidate(signal.candidate));
       } else {
         console.log('Remote description not set yet, queuing ICE candidate');
-        // Queue the candidate to be added later
         if (!pc.queuedCandidates) pc.queuedCandidates = [];
         pc.queuedCandidates.push(signal.candidate);
       }
     }
   } catch (error) {
     console.error('Error handling signal from', from, ':', error);
-    // Try to recover by creating a new connection
     if (error.name === 'InvalidStateError') {
       console.log('Invalid state error, recreating connection to:', from);
       if (peers[from]) {
