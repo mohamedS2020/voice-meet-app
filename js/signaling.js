@@ -141,46 +141,36 @@ async function createPeerConnection(peerName) {
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
       
-      // Reliable free TURN servers for production
+      // Working free TURN servers for production
       {
         urls: [
-          'turn:relay1.expressturn.com:3478',
+          'turn:numb.viagenie.ca',
+          'turns:numb.viagenie.ca'
         ],
-        username: 'efJBIBF2YEEQ2WJBLS',
-        credential: 'ZsIBXSYnQ0q9t0y6'
+        username: 'webrtc@live.com',
+        credential: 'muazkh'
       },
       {
         urls: [
-          'turn:relay1.expressturn.com:3478?transport=tcp',
+          'turn:192.158.29.39:3478?transport=udp',
+          'turn:192.158.29.39:3478?transport=tcp'
         ],
-        username: 'efJBIBF2YEEQ2WJBLS',
-        credential: 'ZsIBXSYnQ0q9t0y6'
+        username: '28224511:1379330808',
+        credential: 'JZEOEt2V3Qb0y27GRntt2u2PAYA='
       },
-      
-      // Backup TURN servers
       {
         urls: [
-          'turn:openrelay.metered.ca:80',
-          'turn:openrelay.metered.ca:443',
-          'turn:openrelay.metered.ca:443?transport=tcp'
-        ],
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      },
-      
-      // Additional backup
-      {
-        urls: [
+          'turn:turn.bistri.com:80',
           'turn:turn.anyfirewall.com:443?transport=tcp'
         ],
-        username: 'webrtc',
-        credential: 'webrtc'
+        username: 'homeo',
+        credential: 'homeo'
       }
     ],
     iceCandidatePoolSize: 10,
     bundlePolicy: 'max-bundle',
     rtcpMuxPolicy: 'require',
-    // Force TURN usage in restrictive networks
+    // Force gathering all candidate types
     iceTransportPolicy: 'all'
   });
   pc.peerName = peerName;
@@ -698,19 +688,31 @@ async function testTurnConnectivity() {
     const testPc = new RTCPeerConnection({
       iceServers: [
         {
-          urls: ['turn:relay1.expressturn.com:3478'],
-          username: 'efJBIBF2YEEQ2WJBLS',
-          credential: 'ZsIBXSYnQ0q9t0y6'
+          urls: ['turn:numb.viagenie.ca'],
+          username: 'webrtc@live.com',
+          credential: 'muazkh'
         }
       ]
     });
     
     let turnCandidateFound = false;
+    let candidatesCount = 0;
     
     testPc.onicecandidate = (event) => {
-      if (event.candidate && event.candidate.type === 'relay') {
-        turnCandidateFound = true;
-        console.log('✅ TURN server connectivity confirmed!');
+      if (event.candidate) {
+        candidatesCount++;
+        console.log(`🧪 Test candidate #${candidatesCount}:`, event.candidate.type, event.candidate.candidate);
+        
+        if (event.candidate.type === 'relay') {
+          turnCandidateFound = true;
+          console.log('✅ TURN server connectivity confirmed! Relay candidate found.');
+          testPc.close();
+        }
+      } else {
+        console.log(`🧪 ICE gathering complete. Total candidates: ${candidatesCount}`);
+        if (!turnCandidateFound) {
+          console.warn('⚠️ No TURN relay candidates found - TURN servers may be down');
+        }
         testPc.close();
       }
     };
@@ -720,13 +722,13 @@ async function testTurnConnectivity() {
     const offer = await testPc.createOffer();
     await testPc.setLocalDescription(offer);
     
-    // Wait for ICE gathering
+    // Wait for ICE gathering with longer timeout
     setTimeout(() => {
       if (!turnCandidateFound) {
-        console.warn('⚠️ No TURN relay candidates found - may have connectivity issues');
+        console.warn('⚠️ TURN connectivity test timed out - TURN servers may be unreachable');
       }
       testPc.close();
-    }, 5000);
+    }, 8000); // Longer timeout for TURN
     
   } catch (error) {
     console.error('❌ TURN connectivity test failed:', error);
