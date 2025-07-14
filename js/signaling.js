@@ -2,9 +2,9 @@
 const socket = io(window.CONFIG.SERVER_URL);
 const peers = {}; // { peerName: RTCPeerConnection }
 
-// Define roomCode and userName locally
-const roomCode = new URLSearchParams(window.location.search).get("code");
-const userName = sessionStorage.getItem("userName") || "Anonymous";
+// Define roomCode and userName locally with unique names
+const roomCodeSignaling = new URLSearchParams(window.location.search).get("code");
+const userNameSignaling = sessionStorage.getItem("userName") || "Anonymous";
 const isHostSignaling = sessionStorage.getItem("isHost") === "true";
 const isPolite = !isHostSignaling; // Host is impolite, joiners are polite
 let makingOffer = false;
@@ -12,11 +12,11 @@ let ignoreOffer = false;
 
 socket.on('connect', () => {
   console.log('Socket.IO connected to signaling server');
-  console.log('Joining room:', roomCode, 'as user:', userName);
+  console.log('Joining room:', roomCodeSignaling, 'as user:', userNameSignaling);
   socket.emit('join', {
-    roomId: roomCode,
-    name: userName,
-    isHost: isHostSignaling
+    roomId: roomCodeSignaling,
+    name: userNameSignaling,
+    isHost: isHostSignaling,
   });
 });
 
@@ -87,7 +87,7 @@ socket.on('peer-left', (data) => {
 socket.on('movie-audio-state', (data) => {
   console.log('🎬 Movie audio state change:', data);
   
-  if (data.host !== userName) { // Don't apply to host
+  if (data.host !== userNameSignaling) { // Don't apply to host
     if (data.isPlaying) {
       console.log('🔉 Movie started - enabling enhanced echo cancellation for participant');
       // Enable enhanced microphone mode for participants when movie plays
@@ -105,7 +105,7 @@ socket.on('movie-audio-state', (data) => {
 });
 
 function sendEmoji(emoji) {
-  socket.emit('emoji', { roomId: roomCode, emoji });
+  socket.emit('emoji', { roomId: roomCodeSignaling, emoji });
 }
 window.sendEmoji = sendEmoji; // expose to meeting.js
 
@@ -186,7 +186,7 @@ async function createPeerConnection(peerName) {
     if (event.candidate) {
       console.log('Sending ICE candidate to:', peerName);
       socket.emit('signal', {
-        roomId: roomCode,
+        roomId: roomCodeSignaling,
         to: peerName,
         signal: { candidate: event.candidate },
       });
@@ -210,8 +210,8 @@ async function createPeerConnection(peerName) {
       window.location.href.includes('localhost') || 
       window.location.href.includes('127.0.0.1') ||
       peerName.toLowerCase().includes('test') ||
-      userName.toLowerCase().includes('test') ||
-      peerName === userName  // Same name indicates same device
+      userNameSignaling.toLowerCase().includes('test') ||
+      peerName === userNameSignaling  // Same name indicates same device
     );
     
     // CRITICAL: Much lower volume for same-device testing to prevent feedback
@@ -345,8 +345,8 @@ async function createPeerConnection(peerName) {
           window.location.href.includes('localhost') || 
           window.location.href.includes('127.0.0.1') ||
           peerName.toLowerCase().includes('test') ||
-          userName.toLowerCase().includes('test') ||
-          peerName === userName
+          userNameSignaling.toLowerCase().includes('test') ||
+          peerName === userNameSignaling
         );
         
         if (isSameDeviceTesting) {
@@ -453,7 +453,7 @@ async function createOffer(peerName) {
       await pc.setLocalDescription(offer);
       console.log('Sending offer to:', peerName);
       socket.emit('signal', {
-        roomId: roomCode,
+        roomId: roomCodeSignaling,
         to: peerName,
         signal: { sdp: pc.localDescription },
       });
@@ -507,7 +507,7 @@ async function handleSignal(from, signal) {
         await pc.setLocalDescription(answer);
         console.log('Sending answer to:', from);
         socket.emit('signal', {
-          roomId: roomCode,
+          roomId: roomCodeSignaling,
           to: from,
           signal: { sdp: pc.localDescription },
         });
